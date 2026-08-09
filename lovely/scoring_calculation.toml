@@ -59,11 +59,20 @@ self.GAME.selected_back_key = selected_back
 '''
 payload = '''
 
-if saveTable then
-    self.GAME.current_scoring_calculation = SMODS.Scoring_Calculations[saveTable.SCORING_CALC.key]:load({
-        config = saveTable.SCORING_CALC.config
+-- A run saved before scoring calculations existed has no SCORING_CALC, and one saved with a
+-- calculation from a mod that is no longer installed names a key that is no longer registered.
+-- Either way the run predates what is being asked of it, so it falls back to the default rather
+-- than indexing nothing - otherwise every such save is unloadable.
+local saved_calculation = saveTable and saveTable.SCORING_CALC
+local calculation = saved_calculation and SMODS.Scoring_Calculations[saved_calculation.key]
+if calculation then
+    self.GAME.current_scoring_calculation = calculation:load({
+        config = saved_calculation.config
     })
 else
+    if saved_calculation then
+        sendWarnMessage(('Unknown scoring calculation %s in save, using the default'):format(tostring(saved_calculation.key)), 'ScoringCalculation')
+    end
     self.GAME.current_scoring_calculation = SMODS.Scoring_Calculations['multiply']:new()
 end
 '''
