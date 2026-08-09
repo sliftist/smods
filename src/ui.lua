@@ -1576,6 +1576,117 @@ function G.FUNCS.openModsDirectory(options)
     love.system.openURL(SMODS.MODS_DIR)
 end
 
+-- Installing a mod from a git URL.
+--
+-- The URL arrives through the clipboard rather than a text field because it cannot be typed: the
+-- game's text input corpus contains no '/' at all, rejects '[' and ']' outright and remaps '0' to
+-- 'o' (button_callbacks.lua). Pasting is also less work than typing a URL out by hand.
+SMODS.add_mod = { url = "", note = "", cloning = nil }
+
+local CLONE_SCRIPT_NAME = ".smods_clone"
+-- Where a clone is assembled before it is moved into place. Only a finished clone gets the real
+-- name, so the directory appearing is proof the clone succeeded - git creates the destination as its
+-- first act, which makes the destination itself useless as a completion signal.
+local CLONE_PARTIAL_SUFFIX = ".part"
+
+local function mod_url_name(url)
+    local last = string.match(string.gsub(url, "/+$", ""), "([^/]+)$") or ""
+    last = string.gsub(last, "%.git$", "")
+    if last == "" or string.match(last, "[^%w%._%-]") then
+        return nil
+    end
+    return last
+end
+
+-- Deliberately strict rather than escaped: this string is handed to a shell, so anything that could
+-- terminate the command or begin another one disqualifies it outright.
+local function valid_mod_url(url)
+    if string.match(url, "[%s\"'`$&|;<>\\%%]") then
+        return nil
+    end
+    return string.match(url, "^https://") or string.match(url, "^http://") or string.match(url, "^git@")
+end
+
+local function start_clone(url, dest)
+    local windows = love.system.getOS() == 'Windows'
+    local script = SMODS.MODS_DIR .. "/" .. CLONE_SCRIPT_NAME .. (windows and ".bat" or ".sh")
+    local partial = dest .. CLONE_PARTIAL_SUFFIX
+    local body
+    if windows then
+        body = table.concat({
+            "@echo off",
+            'git clone --recurse-submodules "' .. url .. '" "' .. partial .. '"',
+            "if errorlevel 1 exit /b 1",
+            'move "' .. partial .. '" "' .. dest .. '"',
+        }, "\r\n")
+    else
+        body = table.concat({
+            "#!/bin/sh",
+            'git clone --recurse-submodules "' .. url .. '" "' .. partial .. '" || exit 1',
+            'mv "' .. partial .. '" "' .. dest .. '"',
+        }, "\n")
+    end
+    NFS.write(script, body)
+    -- Detached: a clone runs for as long as it runs, and os.execute would hold the whole game
+    -- frozen for all of it. The menu watches for the finished directory instead.
+    if windows then
+        os.execute('start "" /min cmd /c "' .. script .. '"')
+    else
+        os.execute('sh "' .. script .. '" &')
+    end
+end
+
+function G.FUNCS.SMODS_paste_mod_url()
+    local text = love.system.getClipboardText() or ""
+    text = string.gsub(text, "%s", "")
+    if text == "" then
+        SMODS.add_mod.note = "Clipboard is empty"
+        return
+    end
+    if not valid_mod_url(text) then
+        SMODS.add_mod.note = "Not a git URL"
+        return
+    end
+    local name = mod_url_name(text)
+    if not name then
+        SMODS.add_mod.note = "No folder name in that URL"
+        return
+    end
+    SMODS.add_mod.url = text
+    SMODS.add_mod.note = "Will install as " .. name
+end
+
+function G.FUNCS.SMODS_install_mod_url()
+    local url = SMODS.add_mod.url
+    if url == "" or SMODS.add_mod.cloning then
+        return
+    end
+    local name = mod_url_name(url)
+    local dest = SMODS.MODS_DIR .. "/" .. name
+    if NFS.getInfo(dest) then
+        SMODS.add_mod.note = name .. " is already installed"
+        return
+    end
+    SMODS.add_mod.cloning = dest
+    SMODS.add_mod.note = "Cloning " .. name .. "..."
+    start_clone(url, dest)
+end
+
+-- Runs every frame the mod list is up. The clone finishes out of process, so nothing else can
+-- announce it; counting it into full_restart is what makes leaving this menu pick the mod up, the
+-- same way toggling one does.
+function G.FUNCS.SMODS_watch_mod_clone()
+    if not SMODS.add_mod.cloning then
+        return
+    end
+    if NFS.getInfo(SMODS.add_mod.cloning) then
+        SMODS.add_mod.cloning = nil
+        SMODS.add_mod.url = ""
+        SMODS.add_mod.note = "Installed - leaving this menu will restart"
+        SMODS.full_restart = (SMODS.full_restart or 0) + 1
+    end
+end
+
 function G.FUNCS.mods_buttons_page(options)
     if not options or not options.cycle_config then
         return
@@ -2214,6 +2325,48 @@ function SMODS.GUI.staticModListContent()
                                         minh = scale,
                                         minw = 9
                                     }),
+                                }
+                            },
+
+                            -- Install a mod from a git URL. The watcher for a running clone rides on
+                            -- this row's func, which needs a node that is always present.
+                            {
+                                n = G.UIT.R,
+                                config = { padding = 0.05, align = "cm", func = "SMODS_watch_mod_clone" },
+                                nodes = {
+                                    UIBox_button({
+                                        label = { "Paste URL" },
+                                        shadow = true,
+                                        scale = scale * 0.6,
+                                        colour = G.C.BLUE,
+                                        button = "SMODS_paste_mod_url",
+                                        minh = scale * 0.8,
+                                        minw = 4.4
+                                    }),
+                                    UIBox_button({
+                                        label = { "Install Mod" },
+                                        shadow = true,
+                                        scale = scale * 0.6,
+                                        colour = G.C.GREEN,
+                                        button = "SMODS_install_mod_url",
+                                        minh = scale * 0.8,
+                                        minw = 4.4
+                                    }),
+                                }
+                            },
+                            {
+                                n = G.UIT.R,
+                                config = { padding = 0.02, align = "cm" },
+                                nodes = {
+                                    {
+                                        n = G.UIT.T,
+                                        config = {
+                                            ref_table = SMODS.add_mod,
+                                            ref_value = "note",
+                                            scale = scale * 0.4,
+                                            colour = G.C.UI.TEXT_LIGHT
+                                        }
+                                    },
                                 }
                             },
 
