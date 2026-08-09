@@ -3093,9 +3093,23 @@ function SMODS.change_discard_limit(mod)
     SMODS.update_hand_limit_text(nil, true)
 end
 
+-- What a run has when nothing has modified it, matching what init_game_object writes.
+local DEFAULT_HAND_LIMIT = 5
+
 function SMODS.update_hand_limit_text(play, discard)
-    if play then SMODS.hand_limit_strings.play = G.GAME.starting_params.play_limit ~= 5 and localize('b_limit') .. math.max(1, G.GAME.starting_params.play_limit) or '' end
-    if discard then SMODS.hand_limit_strings.discard = G.GAME.starting_params.discard_limit ~= 5 and localize('b_limit') .. math.max(0, G.GAME.starting_params.discard_limit) or '' end
+    if not (G.GAME and G.GAME.starting_params) then
+        return
+    end
+    -- Backfilled rather than assumed present: this is called on every start_run, including a resume,
+    -- and a resumed run takes G.GAME straight from the save file without passing through
+    -- init_game_object. A save written before these fields existed therefore arrives without them,
+    -- and reading one straight into math.max crashes the load of every older run.
+    local params = G.GAME.starting_params
+    params.play_limit = params.play_limit or DEFAULT_HAND_LIMIT
+    params.discard_limit = params.discard_limit or DEFAULT_HAND_LIMIT
+
+    if play then SMODS.hand_limit_strings.play = params.play_limit ~= DEFAULT_HAND_LIMIT and localize('b_limit') .. math.max(1, params.play_limit) or '' end
+    if discard then SMODS.hand_limit_strings.discard = params.discard_limit ~= DEFAULT_HAND_LIMIT and localize('b_limit') .. math.max(0, params.discard_limit) or '' end
 end
 
 function SMODS.draw_cards(hand_space)
