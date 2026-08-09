@@ -1601,7 +1601,7 @@ end
 -- The URL arrives through the clipboard rather than a text field because it cannot be typed: the
 -- game's text input corpus contains no '/' at all, rejects '[' and ']' outright and remaps '0' to
 -- 'o' (button_callbacks.lua). Pasting is also less work than typing a URL out by hand.
-SMODS.add_mod = { url = "", note = "", cloning = nil }
+SMODS.add_mod = { note = "", cloning = nil }
 
 local CLONE_SCRIPT_NAME = ".smods_clone"
 -- Where a clone is assembled before it is moved into place. Only a finished clone gets the real
@@ -1656,32 +1656,26 @@ local function start_clone(url, dest)
     end
 end
 
-function G.FUNCS.SMODS_paste_mod_url()
-    local text = love.system.getClipboardText() or ""
-    text = string.gsub(text, "%s", "")
-    if text == "" then
+-- One button rather than a paste step and an install step: there is nothing for anyone to decide in
+-- between, and the status line already reports which repository was taken and what it will be called.
+function G.FUNCS.SMODS_add_mod_from_url()
+    if SMODS.add_mod.cloning then
+        return
+    end
+    local url = string.gsub(love.system.getClipboardText() or "", "%s", "")
+    if url == "" then
         SMODS.add_mod.note = "Clipboard is empty"
         return
     end
-    if not valid_mod_url(text) then
-        SMODS.add_mod.note = "Not a git URL"
+    if not valid_mod_url(url) then
+        SMODS.add_mod.note = "Clipboard is not a git URL"
         return
     end
-    local name = mod_url_name(text)
+    local name = mod_url_name(url)
     if not name then
         SMODS.add_mod.note = "No folder name in that URL"
         return
     end
-    SMODS.add_mod.url = text
-    SMODS.add_mod.note = "Will install as " .. name
-end
-
-function G.FUNCS.SMODS_install_mod_url()
-    local url = SMODS.add_mod.url
-    if url == "" or SMODS.add_mod.cloning then
-        return
-    end
-    local name = mod_url_name(url)
     local dest = SMODS.MODS_DIR .. "/" .. name
     if NFS.getInfo(dest) then
         SMODS.add_mod.note = name .. " is already installed"
@@ -1690,6 +1684,10 @@ function G.FUNCS.SMODS_install_mod_url()
     SMODS.add_mod.cloning = dest
     SMODS.add_mod.note = "Cloning " .. name .. "..."
     start_clone(url, dest)
+end
+
+function G.FUNCS.SMODS_restart_now()
+    SMODS.restart_game()
 end
 
 -- Runs every frame the mod list is up. The clone finishes out of process, so nothing else can
@@ -1701,8 +1699,7 @@ function G.FUNCS.SMODS_watch_mod_clone()
     end
     if NFS.getInfo(SMODS.add_mod.cloning) then
         SMODS.add_mod.cloning = nil
-        SMODS.add_mod.url = ""
-        SMODS.add_mod.note = "Installed - leaving this menu will restart"
+        SMODS.add_mod.note = "Installed - press Restart to load it"
         SMODS.full_restart = (SMODS.full_restart or 0) + 1
     end
 end
@@ -1795,10 +1792,9 @@ end
 function G.FUNCS.exit_mods(e)
     G.ACTIVE_MOD_UI = nil
     SMODS.save_all_config()
-    if SMODS.full_restart and SMODS.full_restart ~= 0 then
-        -- launch a new instance of the game and quit the current one
-        SMODS.restart_game()
-    end
+    -- Leaving this menu no longer restarts on its own. Pending changes are still counted in
+    -- full_restart, but a restart throws away whatever the game was in the middle of, so it happens
+    -- when the Restart button is pressed and not as a side effect of backing out of a menu.
     SMODS.IN_MODS_TAB = nil
     if e then
         -- This is only needed when back button is pressed
@@ -2361,38 +2357,33 @@ function SMODS.GUI.staticModListContent()
                                         minh = scale,
                                         minw = 9
                                     }),
+                                    UIBox_button({
+                                        label = { "Add Mod from URL" },
+                                        shadow = true,
+                                        scale = scale*0.6,
+                                        colour = G.C.GREEN,
+                                        button = "SMODS_add_mod_from_url",
+                                        minh = scale,
+                                        minw = 5.5
+                                    }),
+                                    UIBox_button({
+                                        label = { "Restart" },
+                                        shadow = true,
+                                        scale = scale*0.6,
+                                        colour = G.C.RED,
+                                        button = "SMODS_restart_now",
+                                        minh = scale,
+                                        minw = 3.5
+                                    }),
                                 }
                             },
 
-                            -- Install a mod from a git URL. The watcher for a running clone rides on
-                            -- this row's func, which needs a node that is always present.
+                            -- Install status, and the watcher for a running clone. This takes over a
+                            -- spacer row rather than adding one: the mod list below sits in a
+                            -- fixed-height container, so a taller column pushes it off the page.
                             {
                                 n = G.UIT.R,
-                                config = { padding = 0.05, align = "cm", func = "SMODS_watch_mod_clone" },
-                                nodes = {
-                                    UIBox_button({
-                                        label = { "Paste URL" },
-                                        shadow = true,
-                                        scale = scale * 0.6,
-                                        colour = G.C.BLUE,
-                                        button = "SMODS_paste_mod_url",
-                                        minh = scale * 0.8,
-                                        minw = 4.4
-                                    }),
-                                    UIBox_button({
-                                        label = { "Install Mod" },
-                                        shadow = true,
-                                        scale = scale * 0.6,
-                                        colour = G.C.GREEN,
-                                        button = "SMODS_install_mod_url",
-                                        minh = scale * 0.8,
-                                        minw = 4.4
-                                    }),
-                                }
-                            },
-                            {
-                                n = G.UIT.R,
-                                config = { padding = 0.02, align = "cm" },
+                                config = { align = "cm", padding = 0.05, func = "SMODS_watch_mod_clone" },
                                 nodes = {
                                     {
                                         n = G.UIT.T,
@@ -2407,16 +2398,6 @@ function SMODS.GUI.staticModListContent()
                             },
 
                             -- add some empty rows for spacing
-                            {
-                                n = G.UIT.R,
-                                config = { align = "cm", padding = 0.05 },
-                                nodes = {}
-                            },
-                            {
-                                n = G.UIT.R,
-                                config = { align = "cm", padding = 0.05 },
-                                nodes = {}
-                            },
                             {
                                 n = G.UIT.R,
                                 config = { align = "cm", padding = 0.05 },
