@@ -1670,6 +1670,83 @@ function G.FUNCS.SMODS_restart_now()
     SMODS.restart_game()
 end
 
+--||| launch configurations known to work |||
+
+-- Recorded once the game is actually up rather than at the end of loading: a mod that parses but
+-- blows up while initialising is not a configuration worth offering as a way back.
+if SafeMode then
+    local ref_start_up = Game.start_up
+    function Game:start_up()
+        ref_start_up(self)
+        pcall(SafeMode.record_success)
+    end
+end
+
+function G.FUNCS.SMODS_apply_launch_config(e)
+    local entry = e.config.ref_table
+    local changed = SafeMode.apply(entry.enabled)
+    if #changed == 0 then
+        SMODS.add_mod.note = "That is already the current configuration"
+        return
+    end
+    SMODS.add_mod.note = "Changed " .. #changed .. " mod(s) - press Restart"
+    SMODS.full_restart = (SMODS.full_restart or 0) + 1
+    G.FUNCS.exit_overlay_menu()
+end
+
+function G.UIDEF.SMODS_launch_configs()
+    local history = SafeMode and SafeMode.read_history() or {}
+    local rows = {}
+
+    if #history == 0 then
+        rows[1] = { n = G.UIT.R, config = { align = "cm", padding = 0.1 }, nodes = {
+            { n = G.UIT.T, config = { text = "No successful launches recorded yet", scale = 0.4, colour = G.C.UI.TEXT_LIGHT } },
+        } }
+    end
+
+    for index, entry in ipairs(history) do
+        local names = table.concat(entry.enabled, ", ")
+        if string.len(names) > 60 then
+            names = string.sub(names, 1, 57) .. "..."
+        end
+        rows[#rows + 1] = { n = G.UIT.R, config = { align = "cl", padding = 0.04 }, nodes = {
+            { n = G.UIT.C, config = { align = "cl", minw = 3 }, nodes = {
+                { n = G.UIT.T, config = { text = entry.at, scale = 0.32, colour = index == 1 and G.C.GREEN or G.C.UI.TEXT_LIGHT } },
+            } },
+            { n = G.UIT.C, config = { align = "cl", minw = 1.6 }, nodes = {
+                { n = G.UIT.T, config = { text = #entry.enabled .. " mods", scale = 0.32, colour = G.C.UI.TEXT_INACTIVE } },
+            } },
+            { n = G.UIT.C, config = { align = "cl", minw = 8 }, nodes = {
+                { n = G.UIT.T, config = { text = names, scale = 0.26, colour = G.C.UI.TEXT_INACTIVE } },
+            } },
+            UIBox_button({
+                label = { index == 1 and "Current" or "Use" },
+                button = index == 1 and nil or "SMODS_apply_launch_config",
+                ref_table = entry,
+                minw = 1.8,
+                minh = 0.5,
+                scale = 0.32,
+                colour = index == 1 and G.C.UI.BACKGROUND_INACTIVE or G.C.BLUE,
+            }),
+        } }
+    end
+
+    return create_UIBox_generic_options({ back_func = "SMODS_close_launch_configs", contents = {
+        { n = G.UIT.R, config = { align = "cm", padding = 0.05 }, nodes = {
+            { n = G.UIT.T, config = { text = "Launches that reached the menu, newest first", scale = 0.36, colour = G.C.UI.TEXT_INACTIVE } },
+        } },
+        { n = G.UIT.R, config = { align = "cm", padding = 0.05, colour = G.C.CLEAR }, nodes = rows },
+    } })
+end
+
+function G.FUNCS.SMODS_launch_configs_open()
+    G.FUNCS.overlay_menu({ definition = G.UIDEF.SMODS_launch_configs() })
+end
+
+function G.FUNCS.SMODS_close_launch_configs()
+    G.FUNCS.exit_overlay_menu()
+end
+
 -- Runs every frame the mod list is up. The clone finishes out of process, so nothing else can
 -- announce it; counting it into full_restart is what makes leaving this menu pick the mod up, the
 -- same way toggling one does.
@@ -2361,11 +2438,22 @@ function SMODS.GUI.staticModListContent()
                                 }
                             },
 
-                            -- add some empty rows for spacing
+                            -- Also takes over a spacer row rather than adding one, for the same
+                            -- reason as the status line above.
                             {
                                 n = G.UIT.R,
                                 config = { align = "cm", padding = 0.05 },
-                                nodes = {}
+                                nodes = {
+                                    UIBox_button({
+                                        label = { "Known Good Launches" },
+                                        shadow = true,
+                                        scale = scale*0.5,
+                                        colour = G.C.PURPLE,
+                                        button = "SMODS_launch_configs_open",
+                                        minh = scale*0.7,
+                                        minw = 6
+                                    }),
+                                }
                             },
                             {
                                 n = G.UIT.R,

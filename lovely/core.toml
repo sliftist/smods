@@ -17,6 +17,28 @@ target = "main.lua"
 position = "append"
 sources = ["src/core.lua"]
 
+# Safe mode, installed before main.lua's first require. It has to run this early because what it
+# rescues is a mod patch that produces a file which will not parse: that kills the game partway
+# through these requires, so anything appended to the end of main.lua never runs. The file is read
+# off disk rather than named as a source here so that it loads even when this mod is switched off -
+# the recovery has to survive the thing it recovers from.
+[[patches]]
+[patches.pattern]
+target = "main.lua"
+pattern = 'require "engine/object"'
+position = "before"
+match_indent = true
+payload = '''
+for _, dir in ipairs(love.filesystem.getDirectoryItems("Mods")) do
+    local safe_mode_path = "Mods/" .. dir .. "/src/safe_mode.lua"
+    if love.filesystem.getInfo(safe_mode_path) then
+        local found, chunk = pcall(love.filesystem.load, safe_mode_path)
+        if found and chunk then pcall(chunk) end
+        break
+    end
+end
+'''
+
 [[patches]]
 [patches.module]
 source = "version.lua"
