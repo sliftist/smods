@@ -511,22 +511,38 @@ function loadMods(modsDirectory)
                 name = name:match("^(.*).zip$")
             end
             local path = SMODS.MODS_DIR.. "/" .. flags.name .. "/"
+            -- A Lovely-only mod has no manifest, so everything the menu shows about it below is a
+            -- placeholder. An optional lovely_mod.json lets one describe itself without becoming a
+            -- Steamodded mod - which it cannot be, because a manifest.json obliges this loader to
+            -- load a main file, and a Lovely mod's code has already been injected by Lovely before
+            -- any of this runs. Loading it again would run the whole mod twice.
+            local info = {}
+            local info_str = NFS.read(path .. "lovely_mod.json")
+            if info_str then
+                local parsed, decoded = pcall(JSON.decode, info_str)
+                if parsed and type(decoded) == 'table' then
+                    info = decoded
+                else
+                    sendWarnMessage(('Ignoring unreadable lovely_mod.json in %s'):format(flags.name), 'Loader')
+                end
+            end
+            if type(info.author) == 'string' then info.author = { info.author } end
             local mod = {
-                name = name,
+                name = info.name or name,
                 id = "lovely-compat-" .. flags.name,
-                author = {"???"},
-                description = "A lovely mod.",
+                author = info.author or {"???"},
+                description = info.description or "A lovely mod.",
                 prefix_config = { key = { mod = false }, atlas = false },
                 priority = 0,
                 badge_colour = sUtil.hex("666666FF"),
                 badge_text_colour = sUtil.hex('FFFFFF'),
                 path = path,
                 main_file = "",
-                display_name = name,
+                display_name = info.name or name,
                 dependencies = {},
                 optional_dependencies = {},
                 conflicts = {},
-                version = "0.0.0",
+                version = info.version or "0.0.0",
                 can_load = true,
                 lovely = true,
                 lovely_only = true,
