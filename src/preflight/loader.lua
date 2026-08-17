@@ -297,6 +297,11 @@ function loadMods(modsDirectory)
             elseif depth == 2 and filename == "lovely.toml" and not isDirLovely then
                 isDirLovely = true
                 table.insert(lovely_directories, flags)
+            -- lovely_mod.json is a Lovely-only mod describing itself for the menu, read further down
+            -- where the compatibility shim is built. It is deliberately not a Steamodded manifest and
+            -- has no id, so scanning it here only produced an error per mod on every launch - noise
+            -- that buries the real ones.
+            elseif filename:lower() == 'lovely_mod.json' then
             elseif filename:lower():match('%.json') and depth > 1 then
                 local json_str = NFS.read(file_path)
                 local parsed, mod = pcall(JSON.decode, json_str)
